@@ -4,7 +4,9 @@ const express = require('express');
 const ejs = require('ejs');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const md5 = require('md5');
+const bcrypt = require('bcryptjs');//LEVEL 4
+const saltRounds = 10;
+//const md5 = require('md5'); LEVEL : 3
 // const encrypt = require('mongoose-encryption'); LEVEL : 2
 
 const app = express();
@@ -52,31 +54,42 @@ app.get('/register',function(req,res){
 })
 
 app.post('/register',function(req,res){
-    const newUser = new User({
-        email : req.body.username,
-        password : md5(req.body.password)
-    });
 
-    newUser.save().then(function(){
-        res.render('secrets.ejs');
-    }).catch(function(err){
-        console.log(err);
-    })
-})
+    //bcrypt.hash(password that you want to hash, Number of salt rounds u want to make,function);
+    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
+        const newUser = new User({
+            email : req.body.username,
+            //password : md5(req.body.password)
+            password : hash
+        });
+    
+        newUser.save().then(function(){
+            res.render('secrets.ejs');
+        }).catch(function(err){
+            console.log(err);
+        })
+    });
+});
 
 app.post('/login',function(req,res){
     const userName = req.body.username;
-    const password = md5(req.body.password);
+    //const password = md5(req.body.password);
+    const password = req.body.password;
 
     //this means from the collection find where the email field is matching with our username field
     //remember that the usename field is the one that user entered whereas email is the one in our database
 
     User.findOne({email : userName}).then(function(foundUser){
         //if user if found then check for password
+        //here foundUser is nothing but one user object that is email and password
         if(foundUser){
-            if(foundUser.password === password){
-                res.render("secrets.ejs");
-            }
+            //bcrypt.compare(the password that user entered while logging in, hash which is stored inside database,function)
+            bcrypt.compare(password, foundUser.password, function(err, result) {
+                //this means if result of the comparison is true then continue
+                if(result === true){
+                    res.render("secrets.ejs");
+                }
+            });
         }
     }).catch(function(err){
         console.log(err);
