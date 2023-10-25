@@ -4,7 +4,8 @@ const express = require('express');
 const ejs = require('ejs');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const encrypt = require('mongoose-encryption');
+const md5 = require('md5');
+// const encrypt = require('mongoose-encryption'); LEVEL : 2
 
 const app = express();
 
@@ -24,7 +25,12 @@ const userSchema = new mongoose.Schema({
 // This is accessing our .env variables console.log(process.env.SECRET)
 
 //the above and below steps were needed because it gives encryption to our database
+
+/*
+LEVEL 2 : 
 userSchema.plugin(encrypt,{secret : process.env.SECRET,encryptedFields : ["password"]});
+*/
+
 //Its important to add the encrypt plugin to the schema before creation of mongoose model because we are passing the schema to the model creation.
 //the problem with this above encrypt is it encrypts entire database sometimes we don't want to encrypt complete data inside database and leave some fields unencrypted to do that we add option i.e { encryptedFeilds ['fieldNames which want to encrypt']}.
 
@@ -48,7 +54,7 @@ app.get('/register',function(req,res){
 app.post('/register',function(req,res){
     const newUser = new User({
         email : req.body.username,
-        password : req.body.password
+        password : md5(req.body.password)
     });
 
     newUser.save().then(function(){
@@ -60,7 +66,7 @@ app.post('/register',function(req,res){
 
 app.post('/login',function(req,res){
     const userName = req.body.username;
-    const password = req.body.password;
+    const password = md5(req.body.password);
 
     //this means from the collection find where the email field is matching with our username field
     //remember that the usename field is the one that user entered whereas email is the one in our database
@@ -87,3 +93,5 @@ LEVEL 2 encryption - encryption is done by right and left shift of msgs somethin
 In this level encryption when we call save automatically behind the scenes mongoose-encryption will encrypt the fields and later on when we try to find() then at that stage mongoose-encrypt will decrypt the fields to check for the password is correct or not(As per the example).
 */
 //After this once you check the password that you have entered in the mongodb compass you will observe that password is encrypted
+
+//LEVEL 3 encryption - We use Hashing technique to encrypt the passwords
