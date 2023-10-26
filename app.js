@@ -4,8 +4,11 @@ const express = require('express');
 const ejs = require('ejs');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');//LEVEL 4
-const saltRounds = 10;
+const session = require('express-session');//using sessions to implement salting+hashing along with cookies
+const passport = require('passport');
+const passportLocalMongoose = require('passport-local-mongoose');
+//const bcrypt = require('bcryptjs'); //LEVEL 4
+//const saltRounds = 10;
 //const md5 = require('md5'); LEVEL : 3
 // const encrypt = require('mongoose-encryption'); LEVEL : 2
 
@@ -15,6 +18,17 @@ app.use(express.static("public"));//this is for using css files
 app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({extended: true}));
 
+app.use(session({
+    //inside this curly bracket we are using javascript objects with number of properties
+    //secret is the long string that is being choosed and this is something that we gonna keep as secret in our .env file 
+    // to understand remaining properties refer to documentation
+    secret: "Our little secret.",
+    resave : false,
+    saveUninitialized : false
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());//here we are using passport use session
 
 mongoose.connect('mongodb://127.0.0.1:27017/userDB',{useNewUrlParser : true});
 
@@ -22,7 +36,10 @@ mongoose.connect('mongodb://127.0.0.1:27017/userDB',{useNewUrlParser : true});
 const userSchema = new mongoose.Schema({
     email : String,
     password : String
-});
+});//we need schema inorder to use the plugin 
+
+//used to hash and salt passwords and to sace out users into mongodb database 
+userSchema.plugin(passportLocalMongoose);
 
 // This is accessing our .env variables console.log(process.env.SECRET)
 
@@ -40,61 +57,81 @@ userSchema.plugin(encrypt,{secret : process.env.SECRET,encryptedFields : ["passw
 //By using userSchema a new model is created
 const User = new mongoose.model("User",userSchema);
 
+// CHANGE: USE "createStrategy" INSTEAD OF "authenticate"
+passport.use(User.createStrategy());
+
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+
+
 app.get('/',function(req,res){
     res.render('home.ejs');
-})
+});
 
 //this means whenever user moves to login page browser sends request to the server and waits for response
 app.get('/login',function(req,res){
     res.render('login.ejs');
-})
+});
 
 app.get('/register',function(req,res){
     res.render('register.ejs');
 })
 
-app.post('/register',function(req,res){
-
-    //bcrypt.hash(password that you want to hash, Number of salt rounds u want to make,function);
-    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
-        const newUser = new User({
-            email : req.body.username,
-            //password : md5(req.body.password)
-            password : hash
-        });
-    
-        newUser.save().then(function(){
-            res.render('secrets.ejs');
-        }).catch(function(err){
-            console.log(err);
-        })
-    });
+app.get('/secrets',function(req,res){
+    //Here we check if the user is authenticated means checking whether the user is previously logged in or not if logged in redirect to secrets page otherwise to login page.
+    if(req.isAuthenticated()){
+        res.render('secrets.ejs');
+    } else {
+        res.redirect('/login');
+    }
 });
 
-app.post('/login',function(req,res){
-    const userName = req.body.username;
-    //const password = md5(req.body.password);
-    const password = req.body.password;
+app.get('/logout',function(req,res){
+    //check out the documentation of passportjs for logout() method which is deauthenticating the user
+    req.logout();//This is nothing but deauthenticating the user
+    res.redirect("/");
+});
 
-    //this means from the collection find where the email field is matching with our username field
-    //remember that the usename field is the one that user entered whereas email is the one in our database
-
-    User.findOne({email : userName}).then(function(foundUser){
-        //if user if found then check for password
-        //here foundUser is nothing but one user object that is email and password
-        if(foundUser){
-            //bcrypt.compare(the password that user entered while logging in, hash which is stored inside database,function)
-            bcrypt.compare(password, foundUser.password, function(err, result) {
-                //this means if result of the comparison is true then continue
-                if(result === true){
-                    res.render("secrets.ejs");
-                }
-            });
+app.post('/register',function(req,res){
+    //In the documentation of localMongoose there will be some code explaining us how to register a user
+    //modelname.register() username is passed as object
+    User.register({username: req.body.username},req.body.password,function(err,user){
+        //here user is newly registered user
+        if(err){
+            console.log(err);
+            res.redirect("/register");
+        }else{
+            passport.authenticate("local")(req,res,function(){
+                //this callback is only triggered if the authentication is successful i.e we manage to successfully  setup a cookie that saved current logged in session.
+                res.redirect("/secrets");//since session is created and remembered that particular user logged in he/she can redirect directly to "/secrets" route because the cookie will remember all the password that were entered
+            })
         }
-    }).catch(function(err){
-        console.log(err);
+        //if there is no error using passport we are going to authenticate the user and the type of authentication we are performing is ( local )
+    })
+});
+//After registering if you see mongocompass you will observe that both salt and hash exists which says that "passportLocalMongoose" will salt and hash our password 
+
+app.post('/login',function(req,res){
+    
+    const user = new User({
+        username : req.body.username,
+        password : req.body.password
     });
+
+    //passport is being used inorder to login the user and authenticate the user. Inorder to do that we are going to use the login() availble in passportjs documentation.
+    //here below the user is someone : The new user that comes from the login credentials the user provided on our loggin page
+    //callback function is used to check whether the user entered id exist in the database or not.
+    req.login(user,function(err){
+        if(err){
+            console.log(err);
+        } else {
+            passport.authenticate('local')(req,res,function(){
+                res.redirect('/secrets');
+            })
+        }
+    })
 })
+//both when successfully registered and successfully logged in then we are going to send the cookie to the browser and tell the browser to hold that cookie because the cookie has few pieces of information that tells our server about the information mainly that we are authorized to view any of the pages that require authentication.
 
 app.listen(3000,function(){
     console.log('listening on port 3000');
